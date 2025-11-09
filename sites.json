@@ -1,0 +1,11 @@
+{
+  "safebooru": {
+    "baseUrl": "https://safebooru.org/index.php",
+    "apiParams": {
+      "page": "dapi",
+      "s": "post",
+      "q": "index",
+      "json": "1"
+    }
+  }
+}

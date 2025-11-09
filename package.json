@@ -4,11 +4,9 @@
   "description": "",
   "main": "index.js",
   "type": "module",
-  "scripts": {
-    "start": ""
-  },
+  "bin": "./index.js",
   "keywords": [],
-  "author": "",
+  "author": "Gloria",
   "license": "ISC",
   "dependencies": {
     "chalk": "^5.6.2",
