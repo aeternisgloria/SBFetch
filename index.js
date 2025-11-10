@@ -7,8 +7,8 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import { Command } from 'commander';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import cliProgress from "cli-progress";
+import { loadSiteInfo, loadUserKeys } from './lib/config.js';
 
 
 // ts sets up command
@@ -26,33 +26,8 @@ const options = program.opts();
 const limit = parseInt(options.limit, 10);
 const log = options.log == true;
 
-// reconstruct __dirname in ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // this loads the sites
 const site_info = loadSiteInfo();
-
-// ts loads the site info
-function loadSiteInfo() {
-    const spin = createSpinner('loading source...').start();
-    try {
-        // looks for sites.json in the same folder as your CLI script
-        const configPath = path.join(__dirname, 'sites.json');
-
-        if (!fs.existsSync(configPath)) {
-            throw new Error('sites.json not found');
-        }
-
-        const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        spin.success({ text: 'source loaded successfully!' });
-        return data;
-
-    } catch (error) {
-        spin.error({ text: `Invalid site info: ${error.message}` });
-        process.exit(1);
-    }
-}
 
 // asks the site
 async function askSite() {
@@ -78,7 +53,11 @@ async function getTags() {
 // ts fetches
 async function fetchData(site, tags) {
     const spin = createSpinner('searching...').start();
-
+    try {
+        const keys = loadUserKeys(site); // this loads the user keys
+    } catch {
+        const noKey = true
+    }
     if (!site_info[site]) {
         spin.error({
             text: `"${site}" not a valid site. sites: ${Object.keys(site_info).join(', ')}`
@@ -93,13 +72,22 @@ async function fetchData(site, tags) {
         limit: limit.toString()
     });
 
+    // if the site requires authentication, attach user keys
+    if (config.requiresAuth) {
+        const keys = loadUserKeys(site);
+        for (const keyName of config.authParams) {
+            if (keys[keyName]) params.set(keyName, keys[keyName]);
+        }
+    }
+
+
     const url = `${config.baseUrl}?${params.toString()}`;
 
     const res = await fetch(url);
 
     if (!res.ok) {
         spin.error({ text: "error! could not fetch data." });
-
+        console.log('you may want to check your API keys on the keys.toml config file.')
         if (log) {
             console.log(res)
         }
@@ -131,10 +119,9 @@ async function fetchData(site, tags) {
         process.exit(1);
     }
 
-
     spin.success({ text: "success!" });
     if (log) {
-        console.log(result)
+        console.log(data)
     }
     return data
 }
@@ -151,11 +138,23 @@ async function saveDialog(data) {
         ]
     });
 
+    let posts;
+
+    // normalize structure
+    if (Array.isArray(data)) {
+        posts = data; // safebooru style
+    } else if (data.post && Array.isArray(data.post)) {
+        posts = data.post; // gelbooru style
+    } else {
+        console.error("Unexpected data format.");
+        process.exit(1);
+    }
+
     if (answers.action === 'save here') {
-        downloadImages(data);
+        downloadImages(posts);
     } else {
         console.log(chalk.green('you can copy the following link:'));
-        for (const post of data) {
+        for (const post of posts) {
             console.log(post.file_url);
         }
         process.exit(0);
@@ -189,7 +188,7 @@ async function downloadImages(data) {
             completed++;
             download.update(completed);
         } catch (err) {
-            process.stdout.write(`\rError saving ${fileName}: ${err.message}\n`);
+            process.stdout.write(`error saving ${fileName}: ${err.message}\n`);
         }
     }
 
