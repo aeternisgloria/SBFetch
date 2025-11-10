@@ -8,6 +8,8 @@ import fs from 'fs';
 import { Command } from 'commander';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import cliProgress from "cli-progress";
+
 
 // ts sets up command
 const program = new Command();
@@ -22,7 +24,7 @@ program
 const options = program.opts();
 // limit argument
 const limit = parseInt(options.limit, 10);
-const logResult = options.log == true;
+const log = options.log == true;
 
 // reconstruct __dirname in ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +32,27 @@ const __dirname = path.dirname(__filename);
 
 // this loads the sites
 const site_info = loadSiteInfo();
+
+// ts loads the site info
+function loadSiteInfo() {
+    const spin = createSpinner('loading source...').start();
+    try {
+        // looks for sites.json in the same folder as your CLI script
+        const configPath = path.join(__dirname, 'sites.json');
+
+        if (!fs.existsSync(configPath)) {
+            throw new Error('sites.json not found');
+        }
+
+        const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        spin.success({ text: 'source loaded successfully!' });
+        return data;
+
+    } catch (error) {
+        spin.error({ text: `Invalid site info: ${error.message}` });
+        process.exit(1);
+    }
+}
 
 // asks the site
 async function askSite() {
@@ -52,7 +75,7 @@ async function getTags() {
     });
     return answers.tags;
 }
-
+// ts fetches
 async function fetchData(site, tags) {
     const spin = createSpinner('searching...').start();
 
@@ -76,6 +99,11 @@ async function fetchData(site, tags) {
 
     if (!res.ok) {
         spin.error({ text: "error! could not fetch data." });
+
+        if (log) {
+            console.log(res)
+        }
+
         process.exit(1);
     }
 
@@ -86,7 +114,7 @@ async function fetchData(site, tags) {
         spin.error({ text: "no results found for the tags." });
         process.exit(0);
     }
-    
+
     // checks if the data is valid json
     let data;
 
@@ -105,32 +133,13 @@ async function fetchData(site, tags) {
 
 
     spin.success({ text: "success!" });
-    if (logResult) {
+    if (log) {
         console.log(result)
     }
     return data
 }
 
-function loadSiteInfo() {
-    const spin = createSpinner('loading source...').start();
-    try {
-        // looks for sites.json in the same folder as your CLI script
-        const configPath = path.join(__dirname, 'sites.json');
-
-        if (!fs.existsSync(configPath)) {
-            throw new Error('sites.json not found');
-        }
-
-        const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        spin.success({ text: 'source loaded successfully!' });
-        return data;
-
-    } catch (error) {
-        spin.error({ text: `Invalid site info: ${error.message}` });
-        process.exit(1);
-    }
-}
-
+// save dialog
 async function saveDialog(data) {
     const answers = await inquirer.prompt({
         type: 'list',
@@ -153,13 +162,23 @@ async function saveDialog(data) {
     }
 }
 
-
+// downloads the pictures
 async function downloadImages(data) {
+    const download = new cliProgress.SingleBar({
+        format: 'Downloading [{bar}] {percentage}% | {value}/{total} files'
+    }, cliProgress.Presets.shades_classic);
+
+    download.start(data.length, 0);
+
+    let completed = 0;
+
     for (const post of data) {
         const imgURL = post.file_url;
         const fileName = post.id + path.extname(imgURL);
 
-        console.log(`downloading ${fileName}...`);
+        // overwrite same line instead of logging a new one
+        process.stdout.write(`\rDownloading: ${fileName}...`);
+
         try {
             const res = await fetch(imgURL);
             if (!res.ok) throw new Error(`failed to fetch ${imgURL}`);
@@ -167,13 +186,17 @@ async function downloadImages(data) {
             const buffer = await res.arrayBuffer();
             fs.writeFileSync(fileName, Buffer.from(buffer));
 
-            console.log(`saved ${fileName}`);
+            completed++;
+            download.update(completed);
         } catch (err) {
-            console.error(`error saving ${imgURL}:`, err.message);
+            process.stdout.write(`\rError saving ${fileName}: ${err.message}\n`);
         }
     }
-    console.log('all done!');
+
+    download.stop();
+    process.stdout.write('All done!');
     process.exit(0);
 }
 
+// this is the main code, I might have to change this later
 await saveDialog(await fetchData(await askSite(), await getTags()))
