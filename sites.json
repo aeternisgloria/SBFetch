@@ -6,6 +6,17 @@
       "s": "post",
       "q": "index",
       "json": "1"
-    }
+    },
+    "responseType": "json"
+  },
+  "gelbooru": {
+    "baseUrl": "https://gelbooru.com/index.php",
+    "apiParams": {
+      "page": "dapi",
+      "s": "post",
+      "q": "index",
+      "json": "1"
+    },
+    "responseType": "xml"
   }
 }

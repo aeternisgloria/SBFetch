@@ -7,6 +7,7 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import { Command } from 'commander';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 // ts sets up command
 const program = new Command();
@@ -22,6 +23,10 @@ const options = program.opts();
 // limit argument
 const limit = parseInt(options.limit, 10);
 const logResult = options.log == true;
+
+// reconstruct __dirname in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // this loads the sites
 const site_info = loadSiteInfo();
@@ -81,15 +86,23 @@ async function fetchData(site, tags) {
         spin.error({ text: "no results found for the tags." });
         process.exit(0);
     }
-
-    let data;
+    
     // checks if the data is valid json
+    let data;
+
     try {
-        data = JSON.parse(text);
+        if (config.responseType === 'xml') {
+            const xml2js = await import('xml2js');
+            data = await xml2js.parseStringPromise(text);
+            data = data.posts.post; // adjust depending on structure
+        } else {
+            data = JSON.parse(text);
+        }
     } catch (e) {
         spin.error({ text: "unexpected response from the server." });
         process.exit(1);
     }
+
 
     spin.success({ text: "success!" });
     if (logResult) {
@@ -99,14 +112,21 @@ async function fetchData(site, tags) {
 }
 
 function loadSiteInfo() {
+    const spin = createSpinner('loading source...').start();
     try {
-        const configPath = path.join(process.cwd(), 'sites.json');
+        // looks for sites.json in the same folder as your CLI script
+        const configPath = path.join(__dirname, 'sites.json');
+
         if (!fs.existsSync(configPath)) {
             throw new Error('sites.json not found');
         }
-        return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+        const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        spin.success({ text: 'source loaded successfully!' });
+        return data;
+
     } catch (error) {
-        spin.error({ text: `invalid site info: ${error.message}` });
+        spin.error({ text: `Invalid site info: ${error.message}` });
         process.exit(1);
     }
 }
